@@ -157,7 +157,7 @@ struct NotchPreviewContent: View {
 // MARK: - Settings Tabs
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, fontSize, fontColor, overlayMode
+    case general, fontSize, fontColor, overlayMode, externalDisplay
 
     var id: String { rawValue }
 
@@ -167,6 +167,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .fontSize: return "Font Size"
         case .fontColor: return "Color"
         case .overlayMode: return "Overlay"
+        case .externalDisplay: return "Display"
         }
     }
 
@@ -176,6 +177,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .fontSize: return "textformat.size"
         case .fontColor: return "paintpalette"
         case .overlayMode: return "macwindow"
+        case .externalDisplay: return "rectangle.on.rectangle"
         }
     }
 }
@@ -230,6 +232,8 @@ struct SettingsView: View {
                     settings.overlayMode = .pinned
                     settings.floatingGlassEffect = false
                     settings.glassOpacity = 0.15
+                    settings.externalDisplayMode = .off
+                    settings.externalScreenID = 0
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -254,10 +258,13 @@ struct SettingsView: View {
                         fontColorTab
                     case .overlayMode:
                         overlayModeTab
+                    case .externalDisplay:
+                        externalDisplayTab
                     }
                 }
                 .padding(16)
-                .frame(maxHeight: .infinity, alignment: .top)
+
+                Spacer(minLength: 0)
 
                 Divider()
 
@@ -273,7 +280,8 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .frame(width: 500, height: 280)
+        .frame(width: 500)
+        .frame(minHeight: 280, maxHeight: 500)
         .background(.ultraThinMaterial)
         .onAppear {
             previewController.show(settings: settings)
@@ -422,6 +430,113 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
             }
+        }
+    }
+
+    // MARK: - External Display Tab
+
+    @State private var availableScreens: [NSScreen] = []
+
+    private var externalDisplayTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("External Display")
+                .font(.system(size: 13, weight: .medium))
+
+            Text("Show the teleprompter fullscreen on an external display or Sidecar iPad.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Picker("Mode", selection: $settings.externalDisplayMode) {
+                ForEach(ExternalDisplayMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(settings.externalDisplayMode.description)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            if settings.externalDisplayMode != .off {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Target Display")
+                        .font(.system(size: 13, weight: .medium))
+
+                    if availableScreens.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.orange)
+                            Text("No external displays detected. Connect a display or enable Sidecar.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.orange.opacity(0.08))
+                        )
+                    } else {
+                        ForEach(availableScreens, id: \.displayID) { screen in
+                            Button {
+                                settings.externalScreenID = screen.displayID
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "display")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundStyle(settings.externalScreenID == screen.displayID ? Color.accentColor : .secondary)
+                                        .frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(screen.displayName)
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(settings.externalScreenID == screen.displayID ? Color.accentColor : .primary)
+                                        Text("\(Int(screen.frame.width))×\(Int(screen.frame.height))")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if settings.externalScreenID == screen.displayID {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                }
+                                .padding(10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(settings.externalScreenID == screen.displayID ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.04))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Button {
+                        refreshScreens()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Refresh")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .onAppear { refreshScreens() }
+    }
+
+    private func refreshScreens() {
+        availableScreens = NSScreen.screens.filter { $0 != NSScreen.main }
+        // Auto-select first if none selected
+        if settings.externalScreenID == 0, let first = availableScreens.first {
+            settings.externalScreenID = first.displayID
         }
     }
 

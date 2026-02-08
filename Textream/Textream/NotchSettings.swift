@@ -92,6 +92,30 @@ enum OverlayMode: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - External Display Mode
+
+enum ExternalDisplayMode: String, CaseIterable, Identifiable {
+    case off, teleprompter, mirror
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .off:          return "Off"
+        case .teleprompter: return "Teleprompter"
+        case .mirror:       return "Mirror"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .off:          return "No external display output."
+        case .teleprompter: return "Fullscreen teleprompter on the selected display."
+        case .mirror:       return "Horizontally flipped for use with a prompter mirror rig."
+        }
+    }
+}
+
 // MARK: - Settings
 
 @Observable
@@ -129,6 +153,14 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(glassOpacity, forKey: "glassOpacity") }
     }
 
+    var externalDisplayMode: ExternalDisplayMode {
+        didSet { UserDefaults.standard.set(externalDisplayMode.rawValue, forKey: "externalDisplayMode") }
+    }
+
+    var externalScreenID: UInt32 {
+        didSet { UserDefaults.standard.set(Int(externalScreenID), forKey: "externalScreenID") }
+    }
+
     var font: NSFont {
         .systemFont(ofSize: fontSizePreset.pointSize, weight: .semibold)
     }
@@ -154,5 +186,8 @@ class NotchSettings {
         self.floatingGlassEffect = UserDefaults.standard.object(forKey: "floatingGlassEffect") as? Bool ?? false
         let savedOpacity = UserDefaults.standard.double(forKey: "glassOpacity")
         self.glassOpacity = savedOpacity > 0 ? savedOpacity : 0.15
+        self.externalDisplayMode = ExternalDisplayMode(rawValue: UserDefaults.standard.string(forKey: "externalDisplayMode") ?? "") ?? .off
+        let savedScreenID = UserDefaults.standard.integer(forKey: "externalScreenID")
+        self.externalScreenID = UInt32(savedScreenID)
     }
 }

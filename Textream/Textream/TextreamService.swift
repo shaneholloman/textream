@@ -11,6 +11,7 @@ import SwiftUI
 class TextreamService: NSObject {
     static let shared = TextreamService()
     let overlayController = NotchOverlayController()
+    let externalDisplayController = ExternalDisplayController()
     var onOverlayDismissed: (() -> Void)?
     var launchedExternally = false
 
@@ -22,8 +23,21 @@ class TextreamService: NSObject {
         hideMainWindow()
 
         overlayController.show(text: trimmed) { [weak self] in
+            self?.externalDisplayController.dismiss()
             self?.onOverlayDismissed?()
         }
+
+        // Also show on external display if configured (same parsing as overlay)
+        let normalized = trimmed.replacingOccurrences(of: "\n", with: " ")
+            .split(omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
+            .map { String($0) }
+        let words = normalized
+        let totalCharCount = normalized.joined(separator: " ").count
+        externalDisplayController.show(
+            speechRecognizer: overlayController.speechRecognizer,
+            words: words,
+            totalCharCount: totalCharCount
+        )
     }
 
     func hideMainWindow() {
