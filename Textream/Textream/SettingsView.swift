@@ -15,6 +15,9 @@ import Combine
 class NotchPreviewController {
     private var panel: NSPanel?
     private var hostingView: NSHostingView<NotchPreviewContent>?
+    private var originalFrame: NSRect?
+    private var cursorTimer: AnyCancellable?
+    private var trackingSettings: NotchSettings?
 
     func show(settings: NotchSettings) {
         // If panel already exists, just re-show it
@@ -59,9 +62,75 @@ class NotchPreviewController {
     }
 
     func dismiss() {
+        stopCursorTracking()
         panel?.orderOut(nil)
         panel = nil
         hostingView = nil
+        originalFrame = nil
+    }
+
+    var isAtCursor: Bool { originalFrame != nil }
+
+    func animateToCursor(settings: NotchSettings) {
+        guard let panel else { return }
+        if originalFrame == nil {
+            originalFrame = panel.frame
+        }
+        trackingSettings = settings
+
+        // Animate to cursor, then start continuous tracking
+        let target = cursorFrame(for: panel, settings: settings)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.5
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(target, display: true)
+        }, completionHandler: { [weak self] in
+            self?.startCursorTracking()
+        })
+    }
+
+    func animateFromCursor() {
+        stopCursorTracking()
+        guard let panel, let originalFrame else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.5
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(originalFrame, display: true)
+        }
+        self.originalFrame = nil
+        self.trackingSettings = nil
+    }
+
+    private func cursorFrame(for panel: NSPanel, settings: NotchSettings) -> NSRect {
+        let mouse = NSEvent.mouseLocation
+        let cursorOffset: CGFloat = 8
+        let maxWidth = panel.frame.width
+        let notchWidth = settings.notchWidth
+        let panelHeight = panel.frame.height
+
+        let panelX = mouse.x + cursorOffset - (maxWidth - notchWidth) / 2
+        let panelY = mouse.y + 60 - panelHeight
+        return NSRect(x: panelX, y: panelY, width: maxWidth, height: panelHeight)
+    }
+
+    private func startCursorTracking() {
+        cursorTimer?.cancel()
+        cursorTimer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.updatePreviewPosition()
+            }
+    }
+
+    private func stopCursorTracking() {
+        cursorTimer?.cancel()
+        cursorTimer = nil
+    }
+
+    private func updatePreviewPosition() {
+        guard let panel, let settings = trackingSettings else { return }
+        let target = cursorFrame(for: panel, settings: settings)
+        panel.setFrame(target, display: false)
     }
 }
 
@@ -266,6 +335,7 @@ struct SettingsView: View {
                     settings.pinnedScreenID = 0
                     settings.floatingGlassEffect = false
                     settings.glassOpacity = 0.15
+                    settings.followCursorWhenUndocked = false
                     settings.externalDisplayMode = .off
                     settings.externalScreenID = 0
                     settings.mirrorAxis = .horizontal
@@ -324,6 +394,12 @@ struct SettingsView: View {
         .background(.ultraThinMaterial)
         .onAppear {
             previewController.show(settings: settings)
+            if settings.followCursorWhenUndocked && settings.overlayMode == .floating {
+                // Small delay so the panel is created first
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    previewController.animateToCursor(settings: settings)
+                }
+            }
         }
         .onDisappear {
             previewController.dismiss()
@@ -333,6 +409,25 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             previewController.show(settings: settings)
+            if settings.followCursorWhenUndocked && settings.overlayMode == .floating {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    previewController.animateToCursor(settings: settings)
+                }
+            }
+        }
+        .onChange(of: settings.followCursorWhenUndocked) { _, follow in
+            if follow && settings.overlayMode == .floating {
+                previewController.animateToCursor(settings: settings)
+            } else {
+                previewController.animateFromCursor()
+            }
+        }
+        .onChange(of: settings.overlayMode) { _, mode in
+            if mode == .floating && settings.followCursorWhenUndocked {
+                previewController.animateToCursor(settings: settings)
+            } else if mode != .floating && previewController.isAtCursor {
+                previewController.animateFromCursor()
+            }
         }
     }
 
@@ -778,6 +873,19 @@ struct SettingsView: View {
             }
 
             if settings.overlayMode == .floating {
+                Divider()
+
+                Toggle(isOn: $settings.followCursorWhenUndocked) {
+                    Text("Follow Cursor")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text("The window follows your cursor and sticks to its bottom-right.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
                 Divider()
 
                 Toggle(isOn: $settings.floatingGlassEffect) {

@@ -30,7 +30,7 @@ class NotchFrameTracker {
     }
 }
 
-class NotchOverlayController {
+class NotchOverlayController: NSObject {
     private var panel: NSPanel?
     let speechRecognizer = SpeechRecognizer()
     var onComplete: (() -> Void)?
@@ -38,7 +38,9 @@ class NotchOverlayController {
     private var isDismissing = false
     private var frameTracker: NotchFrameTracker?
     private var mouseTrackingTimer: AnyCancellable?
+    private var cursorTrackingTimer: AnyCancellable?
     private var currentScreenID: UInt32 = 0
+    private var statusItem: NSStatusItem?
 
     func show(text: String, onComplete: (() -> Void)? = nil) {
         self.onComplete = onComplete
@@ -65,11 +67,15 @@ class NotchOverlayController {
 
         let screenFrame = screen.frame
 
-        switch settings.overlayMode {
-        case .pinned:
-            showPinned(words: words, totalCharCount: totalCharCount, settings: settings, screen: screen)
-        case .floating:
-            showFloating(words: words, totalCharCount: totalCharCount, settings: settings, screenFrame: screenFrame)
+        if settings.overlayMode == .floating && settings.followCursorWhenUndocked {
+            showFollowCursor(words: words, totalCharCount: totalCharCount, settings: settings, screen: screen)
+        } else {
+            switch settings.overlayMode {
+            case .pinned:
+                showPinned(words: words, totalCharCount: totalCharCount, settings: settings, screen: screen)
+            case .floating:
+                showFloating(words: words, totalCharCount: totalCharCount, settings: settings, screenFrame: screenFrame)
+            }
         }
 
         // Word tracking & silence-paused need the microphone; classic does not
@@ -95,6 +101,31 @@ class NotchOverlayController {
     private func stopMouseTracking() {
         mouseTrackingTimer?.cancel()
         mouseTrackingTimer = nil
+    }
+
+    private func startCursorTracking() {
+        cursorTrackingTimer?.cancel()
+        cursorTrackingTimer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.updateCursorPosition()
+            }
+    }
+
+    private func stopCursorTracking() {
+        cursorTrackingTimer?.cancel()
+        cursorTrackingTimer = nil
+    }
+
+    private func updateCursorPosition() {
+        guard let panel else { return }
+        let mouse = NSEvent.mouseLocation
+        let cursorOffset: CGFloat = 8
+        let x = mouse.x + cursorOffset
+        let h = panel.frame.height
+        let y = mouse.y - h
+        let w = panel.frame.width
+        panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: false)
     }
 
     private func checkMouseScreen() {
@@ -171,6 +202,46 @@ class NotchOverlayController {
         }
     }
 
+    private func showFollowCursor(words: [String], totalCharCount: Int, settings: NotchSettings, screen: NSScreen) {
+        let panelWidth = settings.notchWidth
+        let panelHeight = settings.textAreaHeight
+
+        let mouse = NSEvent.mouseLocation
+        let cursorOffset: CGFloat = 8
+        let xPosition = mouse.x + cursorOffset
+        let yPosition = mouse.y - panelHeight
+
+        let floatingView = FloatingOverlayView(
+            words: words,
+            totalCharCount: totalCharCount,
+            speechRecognizer: speechRecognizer,
+            baseHeight: panelHeight,
+            followingCursor: true
+        )
+        let contentView = NSHostingView(rootView: floatingView)
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: xPosition, y: yPosition, width: panelWidth, height: panelHeight),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .screenSaver
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.ignoresMouseEvents = true
+        panel.sharingType = .none
+        panel.contentView = contentView
+
+        panel.orderFrontRegardless()
+        self.panel = panel
+
+        startCursorTracking()
+        showStatusItem()
+    }
+
     private func showFloating(words: [String], totalCharCount: Int, settings: NotchSettings, screenFrame: CGRect) {
         let panelWidth = settings.notchWidth
         let panelHeight = settings.textAreaHeight
@@ -214,6 +285,8 @@ class NotchOverlayController {
         // Wait for animation, then remove panel
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             self?.stopMouseTracking()
+            self?.stopCursorTracking()
+            self?.removeStatusItem()
             self?.panel?.orderOut(nil)
             self?.panel = nil
             self?.frameTracker = nil
@@ -224,6 +297,8 @@ class NotchOverlayController {
 
     private func forceClose() {
         stopMouseTracking()
+        stopCursorTracking()
+        removeStatusItem()
         cancellables.removeAll()
         speechRecognizer.forceStop()
         panel?.orderOut(nil)
@@ -242,6 +317,8 @@ class NotchOverlayController {
                 // Wait for shrink animation, then cleanup
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     self.stopMouseTracking()
+                    self.stopCursorTracking()
+                    self.removeStatusItem()
                     self.cancellables.removeAll()
                     self.panel?.orderOut(nil)
                     self.panel = nil
@@ -255,6 +332,29 @@ class NotchOverlayController {
 
     var isShowing: Bool {
         panel != nil
+    }
+
+    // MARK: - Status Bar Item (for follow-cursor mode)
+
+    private func showStatusItem() {
+        guard statusItem == nil else { return }
+        print("[Textream] Showing status bar item for follow-cursor mode")
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "■ Stop Prompter"
+        item.button?.target = self
+        item.button?.action = #selector(statusItemStop)
+        statusItem = item
+    }
+
+    private func removeStatusItem() {
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
+        statusItem = nil
+    }
+
+    @objc private func statusItemStop() {
+        dismiss()
     }
 }
 
@@ -694,6 +794,7 @@ struct FloatingOverlayView: View {
     let totalCharCount: Int
     @Bindable var speechRecognizer: SpeechRecognizer
     let baseHeight: CGFloat
+    var followingCursor: Bool = false
 
     @State private var appeared = false
 
@@ -869,48 +970,50 @@ struct FloatingOverlayView: View {
                     Spacer()
                 }
 
-                if listeningMode == .classic {
-                    Button {
-                        isPaused.toggle()
-                    } label: {
-                        Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(isPaused ? .white.opacity(0.6) : .yellow.opacity(0.8))
-                            .frame(width: 24, height: 24)
-                            .background(.white.opacity(0.15))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Button {
-                        if speechRecognizer.isListening {
-                            speechRecognizer.stop()
-                        } else {
-                            speechRecognizer.resume()
+                if !followingCursor {
+                    if listeningMode == .classic {
+                        Button {
+                            isPaused.toggle()
+                        } label: {
+                            Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(isPaused ? .white.opacity(0.6) : .yellow.opacity(0.8))
+                                .frame(width: 24, height: 24)
+                                .background(.white.opacity(0.15))
+                                .clipShape(Circle())
                         }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            if speechRecognizer.isListening {
+                                speechRecognizer.stop()
+                            } else {
+                                speechRecognizer.resume()
+                            }
+                        } label: {
+                            Image(systemName: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(speechRecognizer.isListening ? .yellow.opacity(0.8) : .white.opacity(0.6))
+                                .frame(width: 24, height: 24)
+                                .background(.white.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button {
+                        speechRecognizer.forceStop()
+                        speechRecognizer.shouldDismiss = true
                     } label: {
-                        Image(systemName: speechRecognizer.isListening ? "mic.fill" : "mic.slash.fill")
+                        Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(speechRecognizer.isListening ? .yellow.opacity(0.8) : .white.opacity(0.6))
+                            .foregroundStyle(.white.opacity(0.6))
                             .frame(width: 24, height: 24)
                             .background(.white.opacity(0.15))
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
                 }
-
-                Button {
-                    speechRecognizer.forceStop()
-                    speechRecognizer.shouldDismiss = true
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .frame(width: 24, height: 24)
-                        .background(.white.opacity(0.15))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
             }
             .frame(height: 24)
             .padding(.horizontal, 16)

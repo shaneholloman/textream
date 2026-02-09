@@ -311,6 +311,10 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(glassOpacity, forKey: "glassOpacity") }
     }
 
+    var followCursorWhenUndocked: Bool {
+        didSet { UserDefaults.standard.set(followCursorWhenUndocked, forKey: "followCursorWhenUndocked") }
+    }
+
     var externalDisplayMode: ExternalDisplayMode {
         didSet { UserDefaults.standard.set(externalDisplayMode.rawValue, forKey: "externalDisplayMode") }
     }
@@ -361,6 +365,7 @@ class NotchSettings {
         self.floatingGlassEffect = UserDefaults.standard.object(forKey: "floatingGlassEffect") as? Bool ?? false
         let savedOpacity = UserDefaults.standard.double(forKey: "glassOpacity")
         self.glassOpacity = savedOpacity > 0 ? savedOpacity : 0.15
+        self.followCursorWhenUndocked = UserDefaults.standard.object(forKey: "followCursorWhenUndocked") as? Bool ?? false
         self.externalDisplayMode = ExternalDisplayMode(rawValue: UserDefaults.standard.string(forKey: "externalDisplayMode") ?? "") ?? .off
         let savedScreenID = UserDefaults.standard.integer(forKey: "externalScreenID")
         self.externalScreenID = UInt32(savedScreenID)
