@@ -619,10 +619,14 @@ struct NotchOverlayView: View {
         }
         .animation(.easeInOut(duration: 0.5), value: isDone)
         .onChange(of: isDone) { _, done in
-            if done && !hasNextPage {
-                // Show "Done" briefly, then auto-dismiss
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    speechRecognizer.shouldDismiss = true
+            if done {
+                // Stop listening when page is done
+                speechRecognizer.stop()
+                if !hasNextPage {
+                    // Show "Done" briefly, then auto-dismiss
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        speechRecognizer.shouldDismiss = true
+                    }
                 }
             }
         }
@@ -984,9 +988,13 @@ struct FloatingOverlayView: View {
         }
         .animation(.easeInOut(duration: 0.5), value: isDone)
         .onChange(of: isDone) { _, done in
-            if done && !hasNextPage {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    speechRecognizer.shouldDismiss = true
+            if done {
+                // Stop listening when page is done
+                speechRecognizer.stop()
+                if !hasNextPage {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        speechRecognizer.shouldDismiss = true
+                    }
                 }
             }
         }

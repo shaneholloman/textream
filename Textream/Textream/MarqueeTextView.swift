@@ -102,12 +102,17 @@ struct SpeechScrollView: View {
                 }
             }
             .onChange(of: words) { _, _ in
-                scrollOffset = 0
+                // First line at vertical center: height/2 + lineHeight/2
+                let lineHeight = font.pointSize * 1.4
+                scrollOffset = containerHeight * 0.5 - lineHeight * 0.5
                 manualOffset = 0
                 wordYPositions = [:]
             }
             .onAppear {
                 containerHeight = geo.size.height
+                // First line at vertical center: height/2 + lineHeight/2
+                let lineHeight = font.pointSize * 1.4
+                scrollOffset = containerHeight * 0.5 - lineHeight * 0.5
             }
             .overlay(
                 ScrollWheelView(
@@ -184,15 +189,17 @@ struct SpeechScrollView: View {
         let center = containerHeight * 0.5
 
         if smoothScroll {
-            // Use continuous word progress for jitter-free scrolling
+            // Classic/silence-paused: anchor active word near the bottom, scrolling up
+            let bottomAnchor = containerHeight - 20
             let wordIdx = Int(smoothWordProgress)
             let fraction = smoothWordProgress - Double(wordIdx)
             let clampedIdx = max(0, min(wordIdx, words.count - 1))
             guard let wordY = wordYPositions[clampedIdx] else { return }
             let nextY = wordYPositions[clampedIdx + 1] ?? wordY
             let interpolatedY = wordY + (nextY - wordY) * CGFloat(fraction)
-            scrollOffset = center - interpolatedY
+            scrollOffset = bottomAnchor - interpolatedY
         } else {
+            // Word-tracking/voice-activated: active word at vertical center
             let wordIdx = activeWordIndex()
             if let wordY = wordYPositions[wordIdx] {
                 let target = center - wordY
