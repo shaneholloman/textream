@@ -183,9 +183,11 @@ struct ExternalDisplayView: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            ElapsedTimeView(fontSize: 24)
-                .padding(.top, 20)
-                .padding(.trailing, 40)
+            if NotchSettings.shared.showElapsedTime {
+                ElapsedTimeView(fontSize: 24)
+                    .padding(.top, 20)
+                    .padding(.trailing, 40)
+            }
         }
         .scaleEffect(x: mirrorAxis?.scaleX ?? 1, y: mirrorAxis?.scaleY ?? 1)
         .animation(.easeInOut(duration: 0.5), value: isDone)

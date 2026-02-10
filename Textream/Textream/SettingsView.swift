@@ -183,7 +183,14 @@ struct NotchPreviewContent: View {
                 .frame(width: currentWidth, height: contentHeight)
 
                 VStack(spacing: 0) {
-                    Spacer().frame(height: topPadding)
+                    HStack {
+                        Spacer()
+                        if settings.showElapsedTime {
+                            ElapsedTimeView(fontSize: 11)
+                                .padding(.trailing, 12)
+                        }
+                    }
+                    .frame(height: topPadding)
 
                     SpeechScrollView(
                         words: Self.loremWords,
@@ -255,29 +262,25 @@ struct NotchPreviewContent: View {
 // MARK: - Settings Tabs
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, listeningMode, font, fontColor, overlayMode, externalDisplay
+    case appearance, guidance, teleprompter, external
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .general: return "Size"
-        case .listeningMode: return "Guidance"
-        case .font: return "Font"
-        case .fontColor: return "Color"
-        case .overlayMode: return "Overlay"
-        case .externalDisplay: return "Display"
+        case .appearance: return "Appearance"
+        case .guidance:   return "Guidance"
+        case .teleprompter: return "Teleprompter"
+        case .external:   return "External"
         }
     }
 
     var icon: String {
         switch self {
-        case .general: return "arrow.up.left.and.arrow.down.right"
-        case .listeningMode: return "waveform"
-        case .font: return "textformat"
-        case .fontColor: return "paintpalette"
-        case .overlayMode: return "macwindow"
-        case .externalDisplay: return "rectangle.on.rectangle"
+        case .appearance: return "paintpalette"
+        case .guidance:   return "waveform"
+        case .teleprompter: return "macwindow"
+        case .external:   return "rectangle.on.rectangle"
         }
     }
 }
@@ -288,7 +291,8 @@ struct SettingsView: View {
     @Bindable var settings: NotchSettings
     @Environment(\.dismiss) private var dismiss
     @State private var previewController = NotchPreviewController()
-    @State private var selectedTab: SettingsTab = .listeningMode
+    @State private var selectedTab: SettingsTab = .appearance
+    @State private var showResetConfirmation = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -323,32 +327,9 @@ struct SettingsView: View {
                 }
 
                 Spacer()
-
-                Button("Reset") {
-                    settings.notchWidth = NotchSettings.defaultWidth
-                    settings.textAreaHeight = NotchSettings.defaultHeight
-                    settings.fontSizePreset = .lg
-                    settings.fontFamilyPreset = .sans
-                    settings.fontColorPreset = .white
-                    settings.overlayMode = .pinned
-                    settings.notchDisplayMode = .followMouse
-                    settings.pinnedScreenID = 0
-                    settings.floatingGlassEffect = false
-                    settings.glassOpacity = 0.15
-                    settings.followCursorWhenUndocked = false
-                    settings.fullscreenScreenID = 0
-                    settings.externalDisplayMode = .off
-                    settings.externalScreenID = 0
-                    settings.mirrorAxis = .horizontal
-                    settings.listeningMode = .wordTracking
-                    settings.scrollSpeed = 3
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .buttonStyle(.plain)
             }
             .padding(12)
-            .frame(width: 140)
+            .frame(width: 155)
             .frame(maxHeight: .infinity)
             .background(Color.primary.opacity(0.04))
 
@@ -356,35 +337,35 @@ struct SettingsView: View {
 
             // Content
             VStack(spacing: 0) {
-                Group {
-                    switch selectedTab {
-                    case .general:
-                        generalTab
-                    case .listeningMode:
-                        listeningModeTab
-                    case .font:
-                        fontTab
-                    case .fontColor:
-                        fontColorTab
-                    case .overlayMode:
-                        overlayModeTab
-                    case .externalDisplay:
-                        externalDisplayTab
-                    }
+                switch selectedTab {
+                case .appearance:
+                    appearanceTab
+                case .guidance:
+                    guidanceTab
+                case .teleprompter:
+                    teleprompterTab
+                case .external:
+                    externalTab
                 }
-                .padding(16)
-
-                Spacer(minLength: 0)
 
                 Divider()
 
                 HStack {
+                    Button("Reset All") {
+                        showResetConfirmation = true
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .controlSize(.regular)
+
                     Spacer()
+
                     Button("Done") {
                         dismiss()
                     }
+                    .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .controlSize(.regular)
                 }
                 .padding(12)
             }
@@ -393,6 +374,16 @@ struct SettingsView: View {
         .frame(width: 500)
         .frame(minHeight: 280, maxHeight: 500)
         .background(.ultraThinMaterial)
+        .alert("Reset All Settings?", isPresented: $showResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset", role: .destructive) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    resetAllSettings()
+                }
+            }
+        } message: {
+            Text("This will restore all settings to their defaults.")
+        }
         .onAppear {
             if settings.overlayMode != .fullscreen {
                 previewController.show(settings: settings)
@@ -440,50 +431,175 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - General Tab
+    // MARK: - Appearance Tab
 
-    private var generalTab: some View {
-        VStack(spacing: 14) {
-            // Width slider
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Width")
-                        .font(.system(size: 13, weight: .medium))
-                    Spacer()
-                    Text("\(Int(settings.notchWidth))px")
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
-                        .foregroundStyle(.secondary)
+    private var appearanceTab: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Font Family
+                Text("Font")
+                    .font(.system(size: 13, weight: .medium))
+
+                HStack(spacing: 8) {
+                    ForEach(FontFamilyPreset.allCases) { preset in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                settings.fontFamilyPreset = preset
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Text("Ag")
+                                    .font(Font(preset.font(size: 16)))
+                                    .foregroundStyle(settings.fontFamilyPreset == preset ? Color.accentColor : .primary)
+                                Text(preset.label)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(settings.fontFamilyPreset == preset ? Color.accentColor : .secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(settings.fontFamilyPreset == preset ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(settings.fontFamilyPreset == preset ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                Slider(
-                    value: $settings.notchWidth,
-                    in: NotchSettings.minWidth...NotchSettings.maxWidth,
-                    step: 10
-                )
-            }
 
-            // Height slider
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Height")
-                        .font(.system(size: 13, weight: .medium))
-                    Spacer()
-                    Text("\(Int(settings.textAreaHeight))px")
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                // Text Size
+                Text("Size")
+                    .font(.system(size: 13, weight: .medium))
+
+                HStack(spacing: 8) {
+                    ForEach(FontSizePreset.allCases) { preset in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                settings.fontSizePreset = preset
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Text("Ag")
+                                    .font(Font(settings.fontFamilyPreset.font(size: preset.pointSize * 0.7)))
+                                    .foregroundStyle(settings.fontSizePreset == preset ? Color.accentColor : .primary)
+                                Text(preset.label)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(settings.fontSizePreset == preset ? Color.accentColor : .secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(settings.fontSizePreset == preset ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(settings.fontSizePreset == preset ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                Slider(
-                    value: $settings.textAreaHeight,
-                    in: NotchSettings.minHeight...NotchSettings.maxHeight,
-                    step: 10
-                )
-            }
 
+                Divider()
+
+                // Highlight Color
+                Text("Highlight Color")
+                    .font(.system(size: 13, weight: .medium))
+
+                HStack(spacing: 8) {
+                    ForEach(FontColorPreset.allCases) { preset in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                settings.fontColorPreset = preset
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Circle()
+                                    .fill(preset.color)
+                                    .frame(width: 22, height: 22)
+                                    .overlay(
+                                        Circle()
+                                            .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                                    )
+                                    .overlay(
+                                        settings.fontColorPreset == preset
+                                            ? Image(systemName: "checkmark")
+                                                .font(.system(size: 10, weight: .bold))
+                                                .foregroundStyle(preset == .white ? .black : .white)
+                                            : nil
+                                    )
+                                Text(preset.label)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(settings.fontColorPreset == preset ? .primary : .secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(settings.fontColorPreset == preset ? preset.color.opacity(0.1) : Color.primary.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(settings.fontColorPreset == preset ? preset.color.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Divider()
+
+                // Dimensions
+                Text("Dimensions")
+                    .font(.system(size: 13, weight: .medium))
+
+                VStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Width")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(Int(settings.notchWidth))px")
+                                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Slider(
+                            value: $settings.notchWidth,
+                            in: NotchSettings.minWidth...NotchSettings.maxWidth,
+                            step: 10
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Height")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(Int(settings.textAreaHeight))px")
+                                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Slider(
+                            value: $settings.textAreaHeight,
+                            in: NotchSettings.minHeight...NotchSettings.maxHeight,
+                            step: 10
+                        )
+                    }
+                }
+            }
+            .padding(16)
         }
     }
 
-    // MARK: - Listening Mode Tab
+    // MARK: - Guidance Tab
 
-    private var listeningModeTab: some View {
+    private var guidanceTab: some View {
         VStack(alignment: .leading, spacing: 14) {
             Picker("", selection: $settings.listeningMode) {
                 ForEach(ListeningMode.allCases) { mode in
@@ -541,165 +657,177 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            Spacer()
         }
+        .padding(16)
     }
 
-    // MARK: - Font Tab
+    // MARK: - Teleprompter Tab
 
-    private var fontTab: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Font Family")
-                .font(.system(size: 13, weight: .medium))
+    @State private var overlayScreens: [NSScreen] = []
 
-            HStack(spacing: 8) {
-                ForEach(FontFamilyPreset.allCases) { preset in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            settings.fontFamilyPreset = preset
+    private var teleprompterTab: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Overlay mode picker
+                Picker("", selection: $settings.overlayMode) {
+                    ForEach(OverlayMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Text(settings.overlayMode.description)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                if settings.overlayMode == .pinned {
+                    Divider()
+
+                    Text("Display")
+                        .font(.system(size: 13, weight: .medium))
+
+                    Picker("", selection: $settings.notchDisplayMode) {
+                        ForEach(NotchDisplayMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
                         }
-                    } label: {
-                        VStack(spacing: 6) {
-                            Text("Ag")
-                                .font(Font(preset.font(size: 16)))
-                                .foregroundStyle(settings.fontFamilyPreset == preset ? Color.accentColor : .primary)
-                            Text(preset.label)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(settings.fontFamilyPreset == preset ? Color.accentColor : .secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(settings.fontFamilyPreset == preset ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(settings.fontFamilyPreset == preset ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1.5)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    Text(settings.notchDisplayMode.description)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    if settings.notchDisplayMode == .fixedDisplay {
+                        displayPicker(
+                            screens: overlayScreens,
+                            selectedID: $settings.pinnedScreenID,
+                            onRefresh: { refreshOverlayScreens() }
                         )
                     }
-                    .buttonStyle(.plain)
                 }
-            }
 
-            Divider()
+                if settings.overlayMode == .floating {
+                    Divider()
 
-            Text("Text Size")
-                .font(.system(size: 13, weight: .medium))
-
-            HStack(spacing: 8) {
-                ForEach(FontSizePreset.allCases) { preset in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            settings.fontSizePreset = preset
-                        }
-                    } label: {
-                        VStack(spacing: 6) {
-                            Text("Ag")
-                                .font(Font(settings.fontFamilyPreset.font(size: preset.pointSize * 0.7)))
-                                .foregroundStyle(settings.fontSizePreset == preset ? Color.accentColor : .primary)
-                            Text(preset.label)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(settings.fontSizePreset == preset ? Color.accentColor : .secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(settings.fontSizePreset == preset ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(settings.fontSizePreset == preset ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1.5)
-                        )
+                    Toggle(isOn: $settings.followCursorWhenUndocked) {
+                        Text("Follow Cursor")
+                            .font(.system(size: 13, weight: .medium))
                     }
-                    .buttonStyle(.plain)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    Text("The window follows your cursor and sticks to its bottom-right.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Divider()
+
+                    Toggle(isOn: $settings.floatingGlassEffect) {
+                        Text("Glass Effect")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    if settings.floatingGlassEffect {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Opacity")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("\(Int(settings.glassOpacity * 100))%")
+                                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Slider(
+                                value: $settings.glassOpacity,
+                                in: 0.0...0.6,
+                                step: 0.05
+                            )
+                        }
+                    }
                 }
+
+                if settings.overlayMode == .fullscreen {
+                    Divider()
+
+                    Text("Display")
+                        .font(.system(size: 13, weight: .medium))
+
+                    displayPicker(
+                        screens: overlayScreens,
+                        selectedID: $settings.fullscreenScreenID,
+                        onRefresh: { refreshOverlayScreens() }
+                    )
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "escape")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("Press Esc to stop the teleprompter.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.primary.opacity(0.04))
+                    )
+                }
+
+                Divider()
+
+                // Options
+                Toggle(isOn: $settings.showElapsedTime) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Elapsed Time")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("Display a running timer while the teleprompter is active.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+
+                Toggle(isOn: $settings.hideFromScreenShare) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Hide from Screen Sharing")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("Hide the overlay from screen recordings and video calls.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
             }
+            .padding(16)
         }
+        .onAppear { refreshOverlayScreens() }
     }
 
-    // MARK: - Font Color Tab
-
-    private var fontColorTab: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Highlight Color")
-                .font(.system(size: 13, weight: .medium))
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 8)], spacing: 8) {
-                ForEach(FontColorPreset.allCases) { preset in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            settings.fontColorPreset = preset
-                        }
-                    } label: {
-                        VStack(spacing: 8) {
-                            Circle()
-                                .fill(preset.color)
-                                .frame(width: 28, height: 28)
-                                .overlay(
-                                    Circle()
-                                        .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
-                                )
-                                .overlay(
-                                    settings.fontColorPreset == preset
-                                        ? Image(systemName: "checkmark")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundStyle(preset == .white ? .black : .white)
-                                        : nil
-                                )
-                            Text(preset.label)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(settings.fontColorPreset == preset ? .primary : .secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(settings.fontColorPreset == preset ? preset.color.opacity(0.1) : Color.primary.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(settings.fontColorPreset == preset ? preset.color.opacity(0.4) : Color.clear, lineWidth: 1.5)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    // MARK: - External Display Tab
+    // MARK: - External Tab
 
     @State private var availableScreens: [NSScreen] = []
 
-    private var externalDisplayTab: some View {
+    private var externalTab: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Toggle(isOn: $settings.hideFromScreenShare) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Do not show on screen shares")
-                        .font(.system(size: 13, weight: .medium))
-                    Text("Hide the overlay from screen recordings and video calls.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .toggleStyle(.checkbox)
-
-            Divider()
-
-            Text("External Display")
-                .font(.system(size: 13, weight: .medium))
-
-            Text("Show the teleprompter fullscreen on an external display or Sidecar iPad.")
+            Text("Show the teleprompter on an external display or Sidecar iPad.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
-            Picker("Mode", selection: $settings.externalDisplayMode) {
+            Picker("", selection: $settings.externalDisplayMode) {
                 ForEach(ExternalDisplayMode.allCases) { mode in
                     Text(mode.label).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
 
             Text(settings.externalDisplayMode.description)
                 .font(.system(size: 11))
@@ -727,274 +855,37 @@ struct SettingsView: View {
             if settings.externalDisplayMode != .off {
                 Divider()
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Target Display")
-                        .font(.system(size: 13, weight: .medium))
+                Text("Target Display")
+                    .font(.system(size: 13, weight: .medium))
 
-                    if availableScreens.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.orange)
-                            Text("No external displays detected. Connect a display or enable Sidecar.")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.orange.opacity(0.08))
-                        )
-                    } else {
-                        ForEach(availableScreens, id: \.displayID) { screen in
-                            Button {
-                                settings.externalScreenID = screen.displayID
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "display")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundStyle(settings.externalScreenID == screen.displayID ? Color.accentColor : .secondary)
-                                        .frame(width: 24)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(screen.displayName)
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(settings.externalScreenID == screen.displayID ? Color.accentColor : .primary)
-                                        Text("\(Int(screen.frame.width))×\(Int(screen.frame.height))")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if settings.externalScreenID == screen.displayID {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                }
-                                .padding(10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(settings.externalScreenID == screen.displayID ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.04))
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-
-                    Button {
-                        refreshScreens()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("Refresh")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
+                displayPicker(
+                    screens: availableScreens,
+                    selectedID: $settings.externalScreenID,
+                    onRefresh: { refreshScreens() },
+                    emptyMessage: "No external displays detected. Connect a display or enable Sidecar."
+                )
             }
+            Spacer()
         }
+        .padding(16)
         .onAppear { refreshScreens() }
     }
 
-    private func refreshScreens() {
-        availableScreens = NSScreen.screens.filter { $0 != NSScreen.main }
-        // Auto-select first if none selected
-        if settings.externalScreenID == 0, let first = availableScreens.first {
-            settings.externalScreenID = first.displayID
-        }
-    }
+    // MARK: - Shared Components
 
-    // MARK: - Overlay Mode Tab
-
-    @State private var overlayScreens: [NSScreen] = []
-
-    private var overlayModeTab: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Picker("", selection: $settings.overlayMode) {
-                ForEach(OverlayMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            Text(settings.overlayMode.description)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            if settings.overlayMode == .pinned {
-                Divider()
-
-                Text("Display")
-                    .font(.system(size: 13, weight: .medium))
-
-                Picker("", selection: $settings.notchDisplayMode) {
-                    ForEach(NotchDisplayMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-
-                Text(settings.notchDisplayMode.description)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-
-                if settings.notchDisplayMode == .fixedDisplay {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(overlayScreens, id: \.displayID) { screen in
-                            Button {
-                                settings.pinnedScreenID = screen.displayID
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "display")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundStyle(settings.pinnedScreenID == screen.displayID ? Color.accentColor : .secondary)
-                                        .frame(width: 24)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(screen.displayName)
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(settings.pinnedScreenID == screen.displayID ? Color.accentColor : .primary)
-                                        Text("\(Int(screen.frame.width))×\(Int(screen.frame.height))")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if settings.pinnedScreenID == screen.displayID {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                }
-                                .padding(10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(settings.pinnedScreenID == screen.displayID ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.04))
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        Button {
-                            refreshOverlayScreens()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 10, weight: .semibold))
-                                Text("Refresh")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            if settings.overlayMode == .floating {
-                Divider()
-
-                Toggle(isOn: $settings.followCursorWhenUndocked) {
-                    Text("Follow Cursor")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                Text("The window follows your cursor and sticks to its bottom-right.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                Toggle(isOn: $settings.floatingGlassEffect) {
-                    Text("Glass Effect")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                if settings.floatingGlassEffect {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Glass Opacity")
-                                .font(.system(size: 13, weight: .medium))
-                            Spacer()
-                            Text("\(Int(settings.glassOpacity * 100))%")
-                                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                        Slider(
-                            value: $settings.glassOpacity,
-                            in: 0.0...0.6,
-                            step: 0.05
-                        )
-                    }
-                }
-            }
-
-            if settings.overlayMode == .fullscreen {
-                Divider()
-
-                Text("Display")
-                    .font(.system(size: 13, weight: .medium))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(overlayScreens, id: \.displayID) { screen in
-                        Button {
-                            settings.fullscreenScreenID = screen.displayID
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "display")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(settings.fullscreenScreenID == screen.displayID ? Color.accentColor : .secondary)
-                                    .frame(width: 24)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(screen.displayName)
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(settings.fullscreenScreenID == screen.displayID ? Color.accentColor : .primary)
-                                    Text("\(Int(screen.frame.width))×\(Int(screen.frame.height))")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if settings.fullscreenScreenID == screen.displayID {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(Color.accentColor)
-                                }
-                            }
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(settings.fullscreenScreenID == screen.displayID ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.04))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Button {
-                        refreshOverlayScreens()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("Refresh")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-
+    private func displayPicker(
+        screens: [NSScreen],
+        selectedID: Binding<UInt32>,
+        onRefresh: @escaping () -> Void,
+        emptyMessage: String? = nil
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if screens.isEmpty, let emptyMessage {
                 HStack(spacing: 6) {
-                    Image(systemName: "escape")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                    Text("Press Esc to stop the teleprompter.")
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                    Text(emptyMessage)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -1002,11 +893,84 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.primary.opacity(0.04))
+                        .fill(Color.orange.opacity(0.08))
                 )
+            } else {
+                ForEach(screens, id: \.displayID) { screen in
+                    Button {
+                        selectedID.wrappedValue = screen.displayID
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "display")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(selectedID.wrappedValue == screen.displayID ? Color.accentColor : .secondary)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(screen.displayName)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(selectedID.wrappedValue == screen.displayID ? Color.accentColor : .primary)
+                                Text("\(Int(screen.frame.width))×\(Int(screen.frame.height))")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if selectedID.wrappedValue == screen.displayID {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedID.wrappedValue == screen.displayID ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.04))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+
+            Button(action: onRefresh) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Refresh")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
         }
-        .onAppear { refreshOverlayScreens() }
+    }
+
+    // MARK: - Helpers
+
+    private func resetAllSettings() {
+        settings.notchWidth = NotchSettings.defaultWidth
+        settings.textAreaHeight = NotchSettings.defaultHeight
+        settings.fontSizePreset = .lg
+        settings.fontFamilyPreset = .sans
+        settings.fontColorPreset = .white
+        settings.overlayMode = .pinned
+        settings.notchDisplayMode = .followMouse
+        settings.pinnedScreenID = 0
+        settings.floatingGlassEffect = false
+        settings.glassOpacity = 0.15
+        settings.followCursorWhenUndocked = false
+        settings.fullscreenScreenID = 0
+        settings.externalDisplayMode = .off
+        settings.externalScreenID = 0
+        settings.mirrorAxis = .horizontal
+        settings.listeningMode = .wordTracking
+        settings.scrollSpeed = 3
+        settings.showElapsedTime = true
+    }
+
+    private func refreshScreens() {
+        availableScreens = NSScreen.screens.filter { $0 != NSScreen.main }
+        if settings.externalScreenID == 0, let first = availableScreens.first {
+            settings.externalScreenID = first.displayID
+        }
     }
 
     private func refreshOverlayScreens() {

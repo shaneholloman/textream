@@ -684,8 +684,10 @@ struct NotchOverlayView: View {
                     VStack(spacing: 0) {
                         HStack {
                             Spacer()
-                            ElapsedTimeView(fontSize: 11)
-                                .padding(.trailing, 12)
+                            if NotchSettings.shared.showElapsedTime {
+                                ElapsedTimeView(fontSize: 11)
+                                    .padding(.trailing, 12)
+                            }
                         }
                         .frame(height: menuBarHeight)
 
@@ -1074,9 +1076,11 @@ struct FloatingOverlayView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
-            ElapsedTimeView(fontSize: 11)
-                .padding(.top, 6)
-                .padding(.trailing, 10)
+            if NotchSettings.shared.showElapsedTime {
+                ElapsedTimeView(fontSize: 11)
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+            }
         }
         .background(
             Group {

@@ -343,6 +343,10 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(hideFromScreenShare, forKey: "hideFromScreenShare") }
     }
 
+    var showElapsedTime: Bool {
+        didSet { UserDefaults.standard.set(showElapsedTime, forKey: "showElapsedTime") }
+    }
+
     var fullscreenScreenID: UInt32 {
         didSet { UserDefaults.standard.set(Int(fullscreenScreenID), forKey: "fullscreenScreenID") }
     }
@@ -385,6 +389,7 @@ class NotchSettings {
         let savedSpeed = UserDefaults.standard.double(forKey: "scrollSpeed")
         self.scrollSpeed = savedSpeed > 0 ? savedSpeed : 3
         self.hideFromScreenShare = UserDefaults.standard.object(forKey: "hideFromScreenShare") as? Bool ?? true
+        self.showElapsedTime = UserDefaults.standard.object(forKey: "showElapsedTime") as? Bool ?? true
         let savedFullscreenScreenID = UserDefaults.standard.integer(forKey: "fullscreenScreenID")
         self.fullscreenScreenID = UInt32(savedFullscreenScreenID)
     }
