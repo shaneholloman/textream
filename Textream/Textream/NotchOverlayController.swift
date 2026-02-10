@@ -35,6 +35,13 @@ class OverlayContent {
     var words: [String] = []
     var totalCharCount: Int = 0
     var hasNextPage: Bool = false
+
+    // Page picker
+    var pageCount: Int = 1
+    var currentPageIndex: Int = 0
+    var pagePreviews: [String] = []
+    var showPagePicker: Bool = false
+    var jumpToPageIndex: Int? = nil
 }
 
 class NotchOverlayController: NSObject {
@@ -298,6 +305,7 @@ class NotchOverlayController: NSObject {
         self.panel = panel
 
         startCursorTracking()
+        installKeyMonitor()
     }
 
     private func showFullscreen(settings: NotchSettings, screen: NSScreen) {
@@ -328,14 +336,7 @@ class NotchOverlayController: NSObject {
         panel.orderFrontRegardless()
         self.panel = panel
 
-        // ESC key to stop the prompter
-        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { // ESC
-                self?.dismiss()
-                return nil
-            }
-            return event
-        }
+        installKeyMonitor()
     }
 
     private func showFloating(settings: NotchSettings, screenFrame: CGRect) {
@@ -370,6 +371,8 @@ class NotchOverlayController: NSObject {
 
         panel.orderFrontRegardless()
         self.panel = panel
+
+        installKeyMonitor()
     }
 
     func dismiss() {
@@ -388,6 +391,22 @@ class NotchOverlayController: NSObject {
             self?.frameTracker = nil
             self?.speechRecognizer.shouldDismiss = false
             self?.onComplete?()
+        }
+    }
+
+    private func installKeyMonitor() {
+        removeEscMonitor()
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if event.keyCode == 53 { // ESC
+                if self.overlayContent.showPagePicker {
+                    self.overlayContent.showPagePicker = false
+                    return nil
+                }
+                self.dismiss()
+                return nil
+            }
+            return event
         }
     }
 
@@ -411,9 +430,16 @@ class NotchOverlayController: NSObject {
         Timer.publish(every: 0.1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
-                guard let self, self.speechRecognizer.shouldAdvancePage else { return }
-                self.speechRecognizer.shouldAdvancePage = false
-                self.onNextPage?()
+                guard let self else { return }
+                if self.speechRecognizer.shouldAdvancePage {
+                    self.speechRecognizer.shouldAdvancePage = false
+                    self.onNextPage?()
+                }
+                // Poll for page jump from page picker
+                if let targetIndex = self.overlayContent.jumpToPageIndex {
+                    self.overlayContent.jumpToPageIndex = nil
+                    TextreamService.shared.jumpToPage(index: targetIndex)
+                }
             }
             .store(in: &cancellables)
 
@@ -603,6 +629,10 @@ struct NotchOverlayView: View {
     @State private var isUserScrolling: Bool = false
     private let scrollTimer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
+    // Auto next page countdown
+    @State private var countdownRemaining: Int = 0
+    @State private var countdownTimer: Timer? = nil
+
     private let topInset: CGFloat = 16
     private let collapsedInset: CGFloat = 8
 
@@ -691,7 +721,9 @@ struct NotchOverlayView: View {
                         }
                         .frame(height: menuBarHeight)
 
-                        if isDone {
+                        if content.showPagePicker {
+                            pagePickerView
+                        } else if isDone {
                             doneView
                         } else {
                             prompterView
@@ -742,7 +774,11 @@ struct NotchOverlayView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         speechRecognizer.shouldDismiss = true
                     }
+                } else if NotchSettings.shared.autoNextPage {
+                    startCountdown()
                 }
+            } else {
+                cancelCountdown()
             }
         }
         .onReceive(scrollTimer) { _ in
@@ -832,18 +868,44 @@ struct NotchOverlayView: View {
                     Spacer(minLength: 0)
                 }
 
-                if hasNextPage {
-                    Button {
-                        speechRecognizer.shouldAdvancePage = true
-                    } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .frame(width: 24, height: 24)
-                            .background(.white.opacity(0.15))
-                            .clipShape(Circle())
+                if content.pageCount > 1 {
+                    if hasNextPage {
+                        Button {
+                            speechRecognizer.shouldAdvancePage = true
+                        } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .frame(width: 24, height: 24)
+                                .background(.white.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5)
+                                .onEnded { _ in
+                                    content.showPagePicker = true
+                                }
+                        )
+                    } else {
+                        Button {
+                            content.jumpToPageIndex = 0
+                        } label: {
+                            Image(systemName: "backward.end.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .frame(width: 24, height: 24)
+                                .background(.white.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5)
+                                .onEnded { _ in
+                                    content.showPagePicker = true
+                                }
+                        )
                     }
-                    .buttonStyle(.plain)
                 }
 
                 if listeningMode == .classic {
@@ -937,23 +999,103 @@ struct NotchOverlayView: View {
         }
     }
 
+    private var pagePickerView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Jump to page")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.bottom, 2)
+
+                ForEach(0..<content.pageCount, id: \.self) { i in
+                    let preview = i < content.pagePreviews.count ? content.pagePreviews[i] : ""
+                    if !preview.isEmpty {
+                        Button {
+                            content.jumpToPageIndex = i
+                            content.showPagePicker = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("\(i + 1)")
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(i == content.currentPageIndex ? .yellow : .white.opacity(0.8))
+                                    .frame(width: 20)
+                                Text(preview)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(i == content.currentPageIndex ? .yellow.opacity(0.7) : .white.opacity(0.5))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(i == content.currentPageIndex ? Color.yellow.opacity(0.1) : Color.white.opacity(0.05))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text("Tap a page to jump")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .transition(.opacity)
+    }
+
+    private func startCountdown() {
+        countdownTimer?.invalidate()
+        countdownRemaining = NotchSettings.shared.autoNextPageDelay
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            DispatchQueue.main.async {
+                countdownRemaining -= 1
+                if countdownRemaining <= 0 {
+                    timer.invalidate()
+                    countdownTimer = nil
+                    speechRecognizer.shouldAdvancePage = true
+                }
+            }
+        }
+    }
+
+    private func cancelCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        countdownRemaining = 0
+    }
+
     private var doneView: some View {
         VStack {
             Spacer()
             if hasNextPage {
-                Button {
-                    speechRecognizer.shouldAdvancePage = true
-                } label: {
-                    VStack(spacing: 6) {
-                        Text("Next Page")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Image(systemName: "forward.fill")
-                            .font(.system(size: 18, weight: .bold))
+                VStack(spacing: 6) {
+                    if countdownRemaining > 0 {
+                        Text("\(countdownRemaining)")
+                            .font(.system(size: 22, weight: .heavy, design: .rounded))
                             .foregroundStyle(.white)
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.3), value: countdownRemaining)
                     }
+                    Button {
+                        cancelCountdown()
+                        speechRecognizer.shouldAdvancePage = true
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text("Next Page")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.5))
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             } else {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -1068,7 +1210,9 @@ struct FloatingOverlayView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isDone {
+            if content.showPagePicker {
+                floatingPagePickerView
+            } else if isDone {
                 floatingDoneView
             } else {
                 floatingPrompterView
@@ -1121,10 +1265,11 @@ struct FloatingOverlayView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         speechRecognizer.shouldDismiss = true
                     }
-                } else if followingCursor {
-                    // Start 3-second countdown to auto-advance (button can't be clicked in follow-cursor mode)
+                } else if followingCursor || NotchSettings.shared.autoNextPage {
                     startCountdown()
                 }
+            } else {
+                cancelCountdown()
             }
         }
         .onReceive(scrollTimer) { _ in
@@ -1195,6 +1340,46 @@ struct FloatingOverlayView: View {
                     Spacer()
                 }
 
+                if !followingCursor && content.pageCount > 1 {
+                    if hasNextPage {
+                        Button {
+                            speechRecognizer.shouldAdvancePage = true
+                        } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .frame(width: 24, height: 24)
+                                .background(.white.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5)
+                                .onEnded { _ in
+                                    content.showPagePicker = true
+                                }
+                        )
+                    } else {
+                        Button {
+                            content.jumpToPageIndex = 0
+                        } label: {
+                            Image(systemName: "backward.end.fill")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .frame(width: 24, height: 24)
+                                .background(.white.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5)
+                                .onEnded { _ in
+                                    content.showPagePicker = true
+                                }
+                        )
+                    }
+                }
+
                 if !followingCursor {
                     if listeningMode == .classic {
                         Button {
@@ -1248,7 +1433,7 @@ struct FloatingOverlayView: View {
 
     private func startCountdown() {
         countdownTimer?.invalidate()
-        countdownRemaining = 3
+        countdownRemaining = NotchSettings.shared.autoNextPageDelay
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
             DispatchQueue.main.async {
                 countdownRemaining -= 1
@@ -1261,39 +1446,96 @@ struct FloatingOverlayView: View {
         }
     }
 
+    private func cancelCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        countdownRemaining = 0
+    }
+
+    private var floatingPagePickerView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Jump to page")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.bottom, 4)
+
+                ForEach(0..<content.pageCount, id: \.self) { i in
+                    let preview = i < content.pagePreviews.count ? content.pagePreviews[i] : ""
+                    if !preview.isEmpty {
+                        Button {
+                            content.jumpToPageIndex = i
+                            content.showPagePicker = false
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text("\(i + 1)")
+                                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(i == content.currentPageIndex ? .yellow : .white.opacity(0.8))
+                                    .frame(width: 24)
+                                Text(preview)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundStyle(i == content.currentPageIndex ? .yellow.opacity(0.7) : .white.opacity(0.5))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer()
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(i == content.currentPageIndex ? Color.yellow.opacity(0.1) : Color.white.opacity(0.05))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text("Tap a page to jump")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .transition(.opacity)
+    }
+
     private var floatingDoneView: some View {
         VStack {
             Spacer()
             if hasNextPage {
-                if followingCursor {
-                    // Auto-advance countdown (buttons can't be clicked in follow-cursor mode)
-                    VStack(spacing: 6) {
-                        Text("Next Page")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.white)
+                VStack(spacing: 6) {
+                    if countdownRemaining > 0 {
                         Text("\(countdownRemaining)")
                             .font(.system(size: 28, weight: .heavy, design: .rounded))
                             .foregroundStyle(.white)
                             .contentTransition(.numericText())
                             .animation(.easeInOut(duration: 0.3), value: countdownRemaining)
                     }
-                } else {
-                    Button {
-                        speechRecognizer.shouldAdvancePage = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 14, weight: .bold))
-                            Text("Next Page")
-                                .font(.system(size: 14, weight: .bold))
+                    if followingCursor {
+                        Text("Next Page")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                    } else {
+                        Button {
+                            cancelCountdown()
+                            speechRecognizer.shouldAdvancePage = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Next Page")
+                                    .font(.system(size: 14, weight: .bold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor)
+                            .clipShape(Capsule())
                         }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(Color.accentColor)
-                        .clipShape(Capsule())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             } else {
                 HStack(spacing: 6) {

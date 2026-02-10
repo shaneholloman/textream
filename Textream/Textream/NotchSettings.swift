@@ -347,6 +347,14 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(showElapsedTime, forKey: "showElapsedTime") }
     }
 
+    var autoNextPage: Bool {
+        didSet { UserDefaults.standard.set(autoNextPage, forKey: "autoNextPage") }
+    }
+
+    var autoNextPageDelay: Int {
+        didSet { UserDefaults.standard.set(autoNextPageDelay, forKey: "autoNextPageDelay") }
+    }
+
     var fullscreenScreenID: UInt32 {
         didSet { UserDefaults.standard.set(Int(fullscreenScreenID), forKey: "fullscreenScreenID") }
     }
@@ -390,6 +398,9 @@ class NotchSettings {
         self.scrollSpeed = savedSpeed > 0 ? savedSpeed : 3
         self.hideFromScreenShare = UserDefaults.standard.object(forKey: "hideFromScreenShare") as? Bool ?? true
         self.showElapsedTime = UserDefaults.standard.object(forKey: "showElapsedTime") as? Bool ?? true
+        self.autoNextPage = UserDefaults.standard.object(forKey: "autoNextPage") as? Bool ?? false
+        let savedDelay = UserDefaults.standard.integer(forKey: "autoNextPageDelay")
+        self.autoNextPageDelay = savedDelay > 0 ? savedDelay : 3
         let savedFullscreenScreenID = UserDefaults.standard.integer(forKey: "fullscreenScreenID")
         self.fullscreenScreenID = UInt32(savedFullscreenScreenID)
     }

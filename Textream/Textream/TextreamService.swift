@@ -46,6 +46,7 @@ class TextreamService: NSObject, ObservableObject {
             self?.externalDisplayController.dismiss()
             self?.onOverlayDismissed?()
         }
+        updatePageInfo()
 
         // Also show on external display if configured (same parsing as overlay)
         let normalized = trimmed.replacingOccurrences(of: "\n", with: " ")
@@ -77,7 +78,21 @@ class TextreamService: NSObject, ObservableObject {
             nextIndex += 1
         }
         guard nextIndex < pages.count else { return }
-        currentPageIndex = nextIndex
+        jumpToPage(index: nextIndex)
+    }
+
+    func jumpToPage(index: Int) {
+        guard index >= 0 && index < pages.count else { return }
+        let text = pages[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        // Mute mic before switching page content
+        let wasListening = overlayController.speechRecognizer.isListening
+        if wasListening {
+            overlayController.speechRecognizer.stop()
+        }
+
+        currentPageIndex = index
         readPages.insert(currentPageIndex)
 
         let trimmed = currentPageText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -85,6 +100,7 @@ class TextreamService: NSObject, ObservableObject {
 
         // Update content in-place without recreating the panel
         overlayController.updateContent(text: trimmed, hasNextPage: hasNextPage)
+        updatePageInfo()
 
         // Also update external display content in-place
         let normalized = trimmed.replacingOccurrences(of: "\n", with: " ")
@@ -93,6 +109,25 @@ class TextreamService: NSObject, ObservableObject {
         externalDisplayController.overlayContent.words = normalized
         externalDisplayController.overlayContent.totalCharCount = normalized.joined(separator: " ").count
         externalDisplayController.overlayContent.hasNextPage = hasNextPage
+
+        // Unmute after new page content is loaded
+        if wasListening {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.overlayController.speechRecognizer.resume()
+            }
+        }
+    }
+
+    func updatePageInfo() {
+        let content = overlayController.overlayContent
+        content.pageCount = pages.count
+        content.currentPageIndex = currentPageIndex
+        content.pagePreviews = pages.enumerated().map { (i, text) in
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { return "" }
+            let preview = String(trimmed.prefix(40))
+            return preview + (trimmed.count > 40 ? "…" : "")
+        }
     }
 
     func startAllPages() {

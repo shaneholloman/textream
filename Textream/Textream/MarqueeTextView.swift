@@ -285,6 +285,15 @@ struct WordFlowLayout: View {
     var scrollOffset: CGFloat = 0
     var viewportHeight: CGFloat = 0
 
+    // Compute line spacing based on font metrics — fonts with large built-in
+    // line height (e.g. OpenDyslexic) need less extra spacing
+    private var lineSpacing: CGFloat {
+        let intrinsicHeight = font.ascender - font.descender + font.leading
+        let ratio = intrinsicHeight / font.pointSize
+        // System fonts: ratio ~1.2, OpenDyslexic: ratio ~1.7+
+        return ratio > 1.5 ? 2 : 8
+    }
+
     // Simple layout cache to avoid re-measuring words on every highlight update
     private static var _cacheKey: String = ""
     private static var _cachedItems: [WordItem] = []
@@ -322,8 +331,8 @@ struct WordFlowLayout: View {
         let nextIdx = nextWordIndex(items: items)
         let totalLines = lines.count
 
-        // Estimate line height for visibility culling
-        let lineH = ceil(font.pointSize * 1.3) + 8
+        // Estimate line height for visibility culling using actual font metrics
+        let lineH = ceil(font.ascender - font.descender + font.leading) + lineSpacing
 
         // Determine visible range of lines
         let canCull = viewportHeight > 0 && totalLines > 0
@@ -331,7 +340,7 @@ struct WordFlowLayout: View {
         let startLine = canCull ? max(0, min(totalLines, Int(floor((-scrollOffset - buffer) / lineH)))) : 0
         let endLine = canCull ? max(startLine, min(totalLines, Int(ceil((viewportHeight - scrollOffset + buffer) / lineH)))) : totalLines
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: lineSpacing) {
             if startLine > 0 {
                 Color.clear.frame(height: CGFloat(startLine) * lineH)
             }

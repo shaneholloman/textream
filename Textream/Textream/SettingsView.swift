@@ -805,6 +805,37 @@ struct SettingsView: View {
                     }
                 }
                 .toggleStyle(.checkbox)
+
+                Divider()
+
+                // Pagination
+                Text("Pagination")
+                    .font(.system(size: 13, weight: .semibold))
+
+                Toggle(isOn: $settings.autoNextPage) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Auto Next Page")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("Automatically advance to the next page after a countdown.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+
+                if settings.autoNextPage {
+                    HStack {
+                        Text("Countdown")
+                            .font(.system(size: 13))
+                        Spacer()
+                        Picker("", selection: $settings.autoNextPageDelay) {
+                            Text("3 seconds").tag(3)
+                            Text("5 seconds").tag(5)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 160)
+                    }
+                }
             }
             .padding(16)
         }
@@ -964,6 +995,8 @@ struct SettingsView: View {
         settings.listeningMode = .wordTracking
         settings.scrollSpeed = 3
         settings.showElapsedTime = true
+        settings.autoNextPage = false
+        settings.autoNextPageDelay = 3
     }
 
     private func refreshScreens() {
