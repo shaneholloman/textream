@@ -117,9 +117,8 @@ class SpeechRecognizer {
         // and stale taps are removed before the async auth callback fires.
         cleanupRecognition()
 
-        let collapsed = text.components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        let words = splitTextIntoWords(text)
+        let collapsed = words.joined(separator: " ")
         sourceText = collapsed
         normalizedSource = Self.normalize(collapsed)
         recognizedCharCount = 0

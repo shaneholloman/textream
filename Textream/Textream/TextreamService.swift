@@ -51,11 +51,8 @@ class TextreamService: NSObject, ObservableObject {
         updatePageInfo()
 
         // Also show on external display if configured (same parsing as overlay)
-        let normalized = trimmed.replacingOccurrences(of: "\n", with: " ")
-            .split(omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
-            .map { String($0) }
-        let words = normalized
-        let totalCharCount = normalized.joined(separator: " ").count
+        let words = splitTextIntoWords(trimmed)
+        let totalCharCount = words.joined(separator: " ").count
         externalDisplayController.show(
             speechRecognizer: overlayController.speechRecognizer,
             words: words,
@@ -114,17 +111,15 @@ class TextreamService: NSObject, ObservableObject {
         updatePageInfo()
 
         // Also update external display content in-place
-        let normalized = trimmed.replacingOccurrences(of: "\n", with: " ")
-            .split(omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
-            .map { String($0) }
-        externalDisplayController.overlayContent.words = normalized
-        externalDisplayController.overlayContent.totalCharCount = normalized.joined(separator: " ").count
+        let words = splitTextIntoWords(trimmed)
+        externalDisplayController.overlayContent.words = words
+        externalDisplayController.overlayContent.totalCharCount = words.joined(separator: " ").count
         externalDisplayController.overlayContent.hasNextPage = hasNextPage
 
         if browserServer.isRunning {
             browserServer.updateContent(
-                words: normalized,
-                totalCharCount: normalized.joined(separator: " ").count,
+                words: words,
+                totalCharCount: words.joined(separator: " ").count,
                 hasNextPage: hasNextPage
             )
         }

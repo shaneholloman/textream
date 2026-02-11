@@ -69,9 +69,7 @@ class NotchOverlayController: NSObject {
         observeDismiss()
 
         // Populate overlay content
-        let normalized = text.replacingOccurrences(of: "\n", with: " ")
-            .split(omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
-            .map { String($0) }
+        let normalized = splitTextIntoWords(text)
         overlayContent.words = normalized
         overlayContent.totalCharCount = normalized.joined(separator: " ").count
         overlayContent.hasNextPage = hasNextPage
@@ -122,9 +120,7 @@ class NotchOverlayController: NSObject {
     }
 
     func updateContent(text: String, hasNextPage: Bool) {
-        let normalized = text.replacingOccurrences(of: "\n", with: " ")
-            .split(omittingEmptySubsequences: true, whereSeparator: { $0.isWhitespace })
-            .map { String($0) }
+        let normalized = splitTextIntoWords(text)
 
         // Fully reset speech state for new page
         speechRecognizer.recognizedCharCount = 0
