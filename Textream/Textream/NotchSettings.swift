@@ -347,6 +347,10 @@ class NotchSettings {
         didSet { UserDefaults.standard.set(showElapsedTime, forKey: "showElapsedTime") }
     }
 
+    var selectedMicUID: String {
+        didSet { UserDefaults.standard.set(selectedMicUID, forKey: "selectedMicUID") }
+    }
+
     var autoNextPage: Bool {
         didSet { UserDefaults.standard.set(autoNextPage, forKey: "autoNextPage") }
     }
@@ -398,6 +402,7 @@ class NotchSettings {
         self.scrollSpeed = savedSpeed > 0 ? savedSpeed : 3
         self.hideFromScreenShare = UserDefaults.standard.object(forKey: "hideFromScreenShare") as? Bool ?? true
         self.showElapsedTime = UserDefaults.standard.object(forKey: "showElapsedTime") as? Bool ?? true
+        self.selectedMicUID = UserDefaults.standard.string(forKey: "selectedMicUID") ?? ""
         self.autoNextPage = UserDefaults.standard.object(forKey: "autoNextPage") as? Bool ?? false
         let savedDelay = UserDefaults.standard.integer(forKey: "autoNextPageDelay")
         self.autoNextPageDelay = savedDelay > 0 ? savedDelay : 3

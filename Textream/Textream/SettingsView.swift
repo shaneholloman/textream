@@ -629,6 +629,22 @@ struct SettingsView: View {
                 }
             }
 
+            if settings.listeningMode != .classic {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Microphone")
+                        .font(.system(size: 13, weight: .medium))
+                    Picker("", selection: $settings.selectedMicUID) {
+                        Text("System Default").tag("")
+                        ForEach(availableMics) { mic in
+                            Text(mic.name).tag(mic.uid)
+                        }
+                    }
+                    .labelsHidden()
+                }
+            }
+
             if settings.listeningMode != .wordTracking {
                 Divider()
 
@@ -661,7 +677,10 @@ struct SettingsView: View {
             Spacer()
         }
         .padding(16)
+        .onAppear { availableMics = AudioInputDevice.allInputDevices() }
     }
+
+    @State private var availableMics: [AudioInputDevice] = []
 
     // MARK: - Teleprompter Tab
 
@@ -995,6 +1014,7 @@ struct SettingsView: View {
         settings.listeningMode = .wordTracking
         settings.scrollSpeed = 3
         settings.showElapsedTime = true
+        settings.selectedMicUID = ""
         settings.autoNextPage = false
         settings.autoNextPageDelay = 3
     }
