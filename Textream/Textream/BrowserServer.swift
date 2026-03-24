@@ -201,7 +201,10 @@ class BrowserServer {
         }
 
         let effective = min(charCount, totalCharCount)
-        let isDone = totalCharCount > 0 && effective >= totalCharCount
+        let rawDone = totalCharCount > 0 && effective >= totalCharCount
+        // In classic/silence-paused modes on the last page, suppress Done so the
+        // browser keeps showing the prompter text (speaker may still be talking).
+        let isDone = rawDone && (mode == .wordTracking || hasNextPage)
 
         let highlightWords = mode == .wordTracking
 
