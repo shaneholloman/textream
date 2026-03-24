@@ -187,14 +187,18 @@ class BrowserServer {
 
         let charCount: Int
         let mode = NotchSettings.shared.listeningMode
+        // Check if scroll already reached the end, to stop advancing the timer
+        let scrollDone = totalCharCount > 0 && charOffsetForWordProgress(timerWordProgress) >= totalCharCount
         switch mode {
         case .wordTracking:
             charCount = speechRecognizer?.recognizedCharCount ?? 0
         case .classic:
-            timerWordProgress += NotchSettings.shared.scrollSpeed * 0.1
+            if !scrollDone {
+                timerWordProgress += NotchSettings.shared.scrollSpeed * 0.1
+            }
             charCount = charOffsetForWordProgress(timerWordProgress)
         case .silencePaused:
-            if speechRecognizer?.isListening == true && (speechRecognizer?.isSpeaking ?? false) {
+            if !scrollDone && speechRecognizer?.isListening == true && (speechRecognizer?.isSpeaking ?? false) {
                 timerWordProgress += NotchSettings.shared.scrollSpeed * 0.1
             }
             charCount = charOffsetForWordProgress(timerWordProgress)
