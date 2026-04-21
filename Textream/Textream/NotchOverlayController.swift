@@ -534,6 +534,19 @@ struct StopButtonView: View {
     }
 }
 
+// MARK: - Notch Blur View (for transparency mode)
+
+struct NotchBlurView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let v = NSVisualEffectView()
+        v.blendingMode = .behindWindow
+        v.material = .hudWindow
+        v.state = .active
+        return v
+    }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
 // MARK: - Dynamic Island Shape (concave top corners, convex bottom corners)
 
 struct DynamicIslandShape: Shape {
@@ -699,13 +712,34 @@ struct NotchOverlayView: View {
             let currentWidth = notchWidth + (geo.size.width - notchWidth) * expansion
 
             ZStack(alignment: .top) {
-                // Container shape
-                DynamicIslandShape(
-                    topInset: currentTopInset,
-                    bottomRadius: currentBottomRadius
-                )
-                .fill(.black)
-                .frame(width: currentWidth, height: currentHeight)
+                // Container shape — solid black or transparent with blur
+                let isTransparent = NotchSettings.shared.overlayTransparency
+                let transparencyOpacity = NotchSettings.shared.overlayTransparencyOpacity
+
+                if isTransparent {
+                    // Blurred background layer clipped to the Dynamic Island shape
+                    NotchBlurView()
+                        .clipShape(DynamicIslandShape(
+                            topInset: currentTopInset,
+                            bottomRadius: currentBottomRadius
+                        ))
+                        .frame(width: currentWidth, height: currentHeight)
+
+                    // Dark tint overlay so text remains readable
+                    DynamicIslandShape(
+                        topInset: currentTopInset,
+                        bottomRadius: currentBottomRadius
+                    )
+                    .fill(.black.opacity(1.0 - transparencyOpacity))
+                    .frame(width: currentWidth, height: currentHeight)
+                } else {
+                    DynamicIslandShape(
+                        topInset: currentTopInset,
+                        bottomRadius: currentBottomRadius
+                    )
+                    .fill(.black)
+                    .frame(width: currentWidth, height: currentHeight)
+                }
 
                 // Content - appears after container expands
                 if contentVisible {
